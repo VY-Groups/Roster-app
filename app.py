@@ -3105,23 +3105,34 @@ def ensure_assignments(start: date, end: date) -> None:
                 previous_saturday_ids = set()
                 current += timedelta(days=7)
                 continue
-            assigned = list(
-                min(
-                    feasible_pairs,
-                    key=lambda pair: (
-                        sum(
-                            max(
-                                0,
-                                month_counts.get(employee_id, 0)
-                                + 1
-                                - assignment_limit,
-                            )
-                            for employee_id in pair
-                        ),
-                        tuple(sorted((scores[pair[0]], scores[pair[1]]))),
-                    ),
+
+            def pair_priority(pair: tuple[int, int]) -> tuple[int, int, tuple[tuple[int, ...], ...]]:
+                projected_counts = {
+                    employee_id: month_counts.get(employee_id, 0) + 1
+                    for employee_id in pair
+                }
+                off_target_gap = sum(
+                    max(
+                        0,
+                        MIN_SATURDAYS_OFF
+                        - (saturdays_in_month - projected_counts[employee_id]),
+                    )
+                    for employee_id in pair
                 )
-            )
+                excess_after_assignment = sum(
+                    max(
+                        0,
+                        projected_counts[employee_id] - assignment_limit,
+                    )
+                    for employee_id in pair
+                )
+                return (
+                    excess_after_assignment,
+                    off_target_gap,
+                    tuple(sorted((scores[pair[0]], scores[pair[1]]))),
+                )
+
+            assigned = list(min(feasible_pairs, key=pair_priority))
             assigned.sort(key=lambda employee_id: scores[employee_id])
             db.execute(
                 """
