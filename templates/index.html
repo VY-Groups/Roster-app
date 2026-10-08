@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Saturday DC Roster</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js" defer></script>
+    <script src="{{ url_for('static', filename='script.js') }}" defer></script>
+  </head>
+  <body data-user-role="{{ current_user.role }}" data-user-id="{{ current_user.id }}">
+    <main class="app-shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">OPERATIONS SCHEDULER</p>
+          <h1>Saturday DC Roster</h1>
+          <p class="subheading">Keep three or more people on the roster and two assigned every Saturday.</p>
+        </div>
+        <div class="header-actions">
+          <span class="signed-in-user">{{ current_user.username }} · {{ current_user.role }}</span>
+          <button class="button button-secondary" id="print-button" type="button">Print calendar</button>
+          <button class="button button-primary" id="export-button" type="button">Export CSV</button>
+          <form class="logout-form" action="/logout" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button button-secondary" type="submit">Sign out</button>
+          </form>
+        </div>
+      </header>
+
+      <section class="dashboard" aria-label="Roster dashboard">
+        <div class="panel calendar-panel">
+          <div id="calendar" aria-label="Roster calendar"></div>
+          <p id="calendar-hint" class="calendar-hint">Select a date to update a holiday or recurring availability. Select a Saturday to manage its team and leave.</p>
+        </div>
+        <aside class="side-panel">
+          <section class="panel staff-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ROSTER</p>
+                <h2>Employees</h2>
+              </div>
+              <span id="employee-total" class="count-pill">0</span>
+            </div>
+            <form id="employee-form" class="employee-form">
+              <label class="sr-only" for="employee-name">Employee name</label>
+              <input id="employee-name" name="name" maxlength="80" placeholder="Add an employee" required>
+              <button class="button button-primary add-button" type="submit" aria-label="Add employee">+</button>
+            </form>
+            <form id="employee-import-form" class="employee-import-form">
+              <label class="rename-label" for="employee-import-file">Import employees from CSV</label>
+              <input id="employee-import-file" name="file" type="file" accept=".csv,text/csv" required>
+              <button class="button button-secondary" type="submit">Import CSV</button>
+              <a class="template-link" href="/api/employees/template.csv">Download CSV template</a>
+              <p id="employee-import-message" class="muted small-copy" role="status"></p>
+            </form>
+            <button class="button button-secondary roster-export-button" id="employee-export-button" type="button">Export roster CSV</button>
+            <p class="muted small-copy">Two employees are assigned each open Saturday. The rotation targets at least 2 Saturdays off per employee each month; a fourth employee is needed to meet that target in a normal 4- or 5-Saturday month.</p>
+            <ul id="employee-list" class="employee-list"></ul>
+            <form id="pair-exclusion-form" class="pair-exclusion-form">
+              <h3>Team pairing restrictions</h3>
+              <p class="muted small-copy">Prevent a specific pair from being assigned together. The scheduler avoids the pair and flags any date with no feasible team.</p>
+              <label class="rename-label" for="pair-first-employee">First employee</label>
+              <select id="pair-first-employee" required></select>
+              <label class="rename-label" for="pair-second-employee">Cannot work with</label>
+              <select id="pair-second-employee" required></select>
+              <button class="button button-secondary" type="submit">Add restriction</button>
+              <p id="pair-exclusion-error" class="form-error" role="alert"></p>
+            </form>
+            <ul id="pair-exclusion-list" class="pair-exclusion-list"></ul>
+          </section>
+
+          {% if current_user.role == "admin" %}
+          <section class="panel account-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ACCESS CONTROL</p>
+                <h2>User accounts</h2>
+              </div>
+            </div>
+            <form id="account-form" class="account-form">
+              <label class="rename-label" for="account-username">Username</label>
+              <input id="account-username" maxlength="80" required>
+              <label class="rename-label" for="account-password">Temporary password (12+ characters)</label>
+              <input id="account-password" type="password" minlength="12" required>
+              <label class="rename-label" for="account-role">Role</label>
+              <select id="account-role">
+                <option value="operator">Operator — manage roster</option>
+                <option value="viewer">Viewer — read only</option>
+                <option value="admin">Administrator — manage access</option>
+              </select>
+              <button class="button button-secondary" type="submit">Create account</button>
+              <p id="account-error" class="form-error" role="alert"></p>
+            </form>
+            <ul id="account-list" class="account-list"></ul>
+          </section>
+          {% endif %}
+
+          <section class="panel what-if-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">PLAN AHEAD</p>
+                <h2>What-if leave preview</h2>
+              </div>
+            </div>
+            <p class="muted small-copy">Preview one employee being unavailable on a Saturday. This recalculates that month's automatic rotation without saving changes.</p>
+            <form id="what-if-form" class="what-if-form">
+              <label class="rename-label" for="what-if-employee">Employee hypothetically on leave</label>
+              <select id="what-if-employee" required></select>
+              <label class="rename-label" for="what-if-date">Saturday</label>
+              <input id="what-if-date" type="date" required>
+              <button class="button button-secondary" type="submit">Preview impact</button>
+            </form>
+            <section id="what-if-result" class="what-if-result" aria-live="polite" hidden></section>
+          </section>
+
+          <section class="panel roster-preview-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ROSTER SCENARIO</p>
+                <h2>Preview employee change</h2>
+              </div>
+            </div>
+            <p class="muted small-copy">Preview how adding or removing one employee changes upcoming assignments and monthly workload. This does not save the change.</p>
+            <form id="roster-preview-form" class="what-if-form">
+              <label class="rename-label" for="roster-preview-action">Change to preview</label>
+              <select id="roster-preview-action">
+                <option value="add">Add an employee</option>
+                <option value="remove">Remove an employee</option>
+              </select>
+              <label class="rename-label" for="roster-preview-name">New employee name</label>
+              <input id="roster-preview-name" maxlength="80" placeholder="Enter a hypothetical name">
+              <label class="rename-label" for="roster-preview-employee">Employee to remove</label>
+              <select id="roster-preview-employee"></select>
+              <label class="rename-label" for="roster-preview-date">Starting Saturday</label>
+              <input id="roster-preview-date" type="date" required>
+              <button class="button button-secondary" type="submit">Preview roster change</button>
+            </form>
+            <section id="roster-preview-result" class="what-if-result" aria-live="polite" hidden></section>
+          </section>
+
+          <section class="panel leave-requests-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">TIME OFF</p>
+                <h2>Leave requests</h2>
+              </div>
+            </div>
+            <form id="leave-request-form" class="leave-request-form">
+              <label class="rename-label" for="leave-request-employee">Employee</label>
+              <select id="leave-request-employee" required></select>
+              <label class="rename-label" for="leave-request-start">From</label>
+              <input id="leave-request-start" type="date" required>
+              <label class="rename-label" for="leave-request-end">Through</label>
+              <input id="leave-request-end" type="date" required>
+              <button class="button button-primary" type="submit">Submit leave request</button>
+              <p id="leave-request-error" class="form-error" role="alert"></p>
+            </form>
+            <form id="leave-import-form" class="leave-import-form">
+              <label class="rename-label" for="leave-import-file">Import approved leave from CSV</label>
+              <input id="leave-import-file" name="file" type="file" accept=".csv,text/csv" required>
+              <button class="button button-secondary" type="submit">Import leave CSV</button>
+              <a class="template-link" href="/api/leave/template.csv">Download CSV template</a>
+              <p class="muted small-copy">Rows are applied immediately and upcoming assignments are rebalanced.</p>
+              <p id="leave-import-message" class="muted small-copy" role="status"></p>
+            </form>
+            <h3>Pending approval</h3>
+            <ul id="leave-request-list" class="leave-request-list"></ul>
+          </section>
+
+          <section class="panel backup-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">DATA SAFETY</p>
+                <h2>Backup &amp; restore</h2>
+              </div>
+            </div>
+            <p class="muted small-copy">Download a copy of all roster data. Restore replaces current data; the app first saves an automatic safety backup beside its database.</p>
+            <button class="button button-secondary" id="backup-button" type="button">Download backup</button>
+            <form id="restore-form" class="restore-form">
+              <label class="rename-label" for="restore-file">SQLite backup file</label>
+              <input id="restore-file" name="backup" type="file" accept=".db,.sqlite,.sqlite3" required>
+              <label class="leave-option restore-confirm-label">
+                <input id="restore-confirm" type="checkbox">
+                <span>I understand this replaces the current roster.</span>
+              </label>
+              <button class="button button-primary" type="submit">Restore backup</button>
+              <p id="restore-error" class="form-error" role="alert"></p>
+            </form>
+          </section>
+
+          <section class="panel workload-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">VISIBLE MONTH</p>
+                <h2>Workload</h2>
+              </div>
+            </div>
+            <p class="muted small-copy">Assigned counts, Saturdays off, and actual Saturdays worked. Two Saturdays off per employee is the monthly minimum when staffing permits.</p>
+            <div id="workload-list" class="workload-list"></div>
+            <p id="balance-alert" class="balance-alert" hidden></p>
+            <p id="actual-work-alert" class="balance-alert actual-work-alert" hidden></p>
+          </section>
+
+          <section class="panel activity-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">RECENT CHANGES</p>
+                <h2>Activity history</h2>
+              </div>
+              <button class="button button-secondary" id="activity-export-button" type="button">Export CSV</button>
+            </div>
+            <p class="muted small-copy">The local operator label is not a verified personal identity.</p>
+            <div class="activity-filters">
+              <label class="sr-only" for="activity-search">Search recent activity</label>
+              <input id="activity-search" type="search" placeholder="Search actions or employees">
+              <label class="sr-only" for="activity-date-filter">Filter by date</label>
+              <input id="activity-date-filter" type="date">
+              <button class="button button-secondary" id="activity-clear-filters" type="button">Clear</button>
+            </div>
+            <p id="activity-result-count" class="muted small-copy" aria-live="polite"></p>
+            <ol id="activity-list" class="activity-list" aria-live="polite"></ol>
+            <nav class="activity-pagination" aria-label="Activity history pages">
+              <button class="button button-secondary" id="activity-previous" type="button">Previous</button>
+              <span id="activity-page-status" class="muted small-copy" aria-live="polite"></span>
+              <button class="button button-secondary" id="activity-next" type="button">Next</button>
+            </nav>
+          </section>
+        </aside>
+      </section>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </main>
+
+    <dialog id="assignment-dialog" class="assignment-dialog">
+      <form method="dialog" class="dialog-close-row">
+        <button class="icon-button" aria-label="Close" value="cancel">×</button>
+      </form>
+      <p class="eyebrow">ROSTER PLANNER</p>
+      <h2 id="dialog-date"></h2>
+      <section id="assignment-controls">
+        <h3>Saturday assignment</h3>
+        <p class="muted">Choose two available employees. At least three active employees must remain on the roster.</p>
+        <div id="assignment-options" class="assignment-options"></div>
+        <p id="dialog-error" class="form-error" role="alert"></p>
+        <section id="substitute-panel" class="substitute-panel">
+          <h3>Recommended substitutes</h3>
+          <p class="muted small-copy">Available employees are ranked by scheduled duties and actual work this month, then recent Saturday assignment. Choose who to replace; suggested changes are not saved until you save the assignment.</p>
+          <label class="rename-label" for="substitute-out">Replace assigned employee</label>
+          <select id="substitute-out"></select>
+          <ul id="substitute-list" class="substitute-list"></ul>
+        </section>
+        <div class="dialog-actions">
+          <button id="save-assignment" class="button button-primary" type="button">Save assignment</button>
+          <button id="clear-assignment-override" class="button button-secondary" type="button" hidden>Return to automatic rotation</button>
+        </div>
+        <p id="clear-assignment-error" class="form-error" role="alert"></p>
+        <hr>
+        <section class="attendance-controls">
+          <h3>Actual attendance</h3>
+          <p class="muted small-copy">Select everyone who actually worked, including anyone who covered for a scheduled employee. Marking someone on leave as present cancels that leave.</p>
+          <div id="attendance-options" class="leave-options"></div>
+          <p id="attendance-status" class="muted small-copy" role="status"></p>
+          <div class="dialog-actions">
+            <button id="save-attendance" class="button button-secondary" type="button">Save actual attendance</button>
+          </div>
+        </section>
+        <hr>
+        <h3>Leave on this date</h3>
+        <p class="muted small-copy">If someone marked on leave comes in to work, uncheck their name. Leave will be canceled and the Saturday roster will rebalance with them available.</p>
+        <div id="leave-options" class="leave-options"></div>
+        <hr>
+      </section>
+      <section class="weekly-availability">
+        <h3>Recurring unavailable days</h3>
+        <p class="muted small-copy">Choose an employee and their regular days off. Saturday rules affect Saturday assignments.</p>
+        <label class="rename-label" for="availability-employee">Employee</label>
+        <select id="availability-employee"></select>
+        <div id="weekday-options" class="weekday-options"></div>
+        <div class="dialog-actions">
+          <button id="save-availability" class="button button-secondary" type="button">Save weekly availability</button>
+        </div>
+      </section>
+      <hr>
+      <section class="holiday-controls">
+        <h3>Holiday</h3>
+        <label class="leave-option holiday-toggle">
+          <input id="holiday-enabled" type="checkbox">
+          <span>Mark this date as a holiday</span>
+        </label>
+        <label class="rename-label" for="holiday-name">Holiday name</label>
+        <input id="holiday-name" maxlength="80" placeholder="e.g. Public holiday">
+        <label class="leave-option holiday-toggle">
+          <input id="holiday-closed" type="checkbox">
+          <span>DC is closed (no Saturday assignment required)</span>
+        </label>
+        <p id="holiday-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="remove-holiday" class="button button-secondary" type="button">Remove holiday</button>
+          <button id="save-holiday" class="button button-primary" type="button">Save holiday</button>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog id="rename-dialog" class="rename-dialog">
+      <form id="rename-form">
+        <p class="eyebrow">EMPLOYEE DETAILS</p>
+        <h2>Rename employee</h2>
+        <label class="rename-label" for="rename-name">Employee name</label>
+        <input id="rename-name" name="name" maxlength="80" required>
+        <p id="rename-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="cancel-rename" class="button button-secondary" type="button">Cancel</button>
+          <button class="button button-primary" type="submit">Save name</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
