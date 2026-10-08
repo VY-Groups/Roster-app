@@ -250,7 +250,7 @@ flowchart LR
     Flask --> Scheduler
     Flask --> SQLite
     Scheduler --> SQLite
-    Browser -. "calendar library assets" .-> CDN
+    Browser -.->|"calendar library assets"| CDN
 ```
 
 The app is a single Flask process by default, with browser-side interaction in
@@ -262,25 +262,25 @@ temporary in-memory copy instead of modifying the persistent database.
 ```mermaid
 flowchart TD
     Start["Open app"] --> Auth{"Signed in?"}
-    Auth -- "No, first launch" --> Setup["Create first admin"]
-    Auth -- "No" --> Login["Sign in"]
+    Auth -->|No, first launch| Setup["Create first admin"]
+    Auth -->|No| Login["Sign in"]
     Setup --> Login
-    Auth -- "Yes" --> Dashboard["Calendar and workload dashboard"]
+    Auth -->|Yes| Dashboard["Calendar and workload dashboard"]
     Login --> Dashboard
     Dashboard --> Staff["Add / import / rename / deactivate employees"]
     Staff --> Availability["Set recurring availability and pair restrictions"]
     Availability --> Auto["Generate or rebalance automatic teams"]
     Dashboard --> Leave["Record leave or submit date-range request"]
     Leave --> Approval{"Request approved?"}
-    Approval -- "No / pending" --> Dashboard
-    Approval -- "Yes" --> Rebalance["Mark leave and rebalance future teams"]
+    Approval -->|No / pending| Dashboard
+    Approval -->|Yes| Rebalance["Mark leave and rebalance future teams"]
     Rebalance --> Auto
     Auto --> Check{"Two eligible employees and a compatible pair?"}
-    Check -- "Yes" --> Team["Assign two-person team"]
-    Check -- "No" --> Gap["Show coverage gap; do not violate constraints"]
+    Check -->|Yes| Team["Assign two-person team"]
+    Check -->|No| Gap["Show coverage gap; do not violate constraints"]
     Team --> Override{"Manual override?"}
-    Override -- "Yes" --> Save["Validate and save manual team"]
-    Override -- "No" --> Calendar["Display calendar and workload"]
+    Override -->|Yes| Save["Validate and save manual team"]
+    Override -->|No| Calendar["Display calendar and workload"]
     Save --> Calendar
     Calendar --> Attendance["Record actual attendance after shift"]
     Calendar --> Export["Print / export CSV / backup"]
@@ -291,17 +291,17 @@ flowchart TD
 ```mermaid
 flowchart TD
     Saturday["Open Saturday in requested range"] --> Closed{"DC closed?"}
-    Closed -- "Yes" --> Skip["No assignment required"]
-    Closed -- "No" --> Minimum{"At least 3 active employees?"}
-    Minimum -- "No" --> Gap["No automatic assignment; report staffing gap"]
-    Minimum -- "Yes" --> Available["Remove employees on leave or recurring Saturday unavailability"]
+    Closed -->|Yes| Skip["No assignment required"]
+    Closed -->|No| Minimum{"At least 3 active employees?"}
+    Minimum -->|No| Gap["No automatic assignment; report staffing gap"]
+    Minimum -->|Yes| Available["Remove employees on leave or recurring Saturday unavailability"]
     Available --> Pairs["Enumerate two-person teams"]
     Pairs --> Restrictions["Remove incompatible employee pairs"]
     Restrictions --> Feasible{"Any valid team?"}
-    Feasible -- "No" --> Gap
-    Feasible -- "Yes" --> Manual{"Valid manual team exists?"}
-    Manual -- "Yes" --> Keep["Keep manual team"]
-    Manual -- "No" --> Rank["Rank by monthly off-quota overruns, monthly load,<br/>prior 90-day load, attendance, prior Saturday, ID"]
+    Feasible -->|No| Gap
+    Feasible -->|Yes| Manual{"Valid manual team exists?"}
+    Manual -->|Yes| Keep["Keep manual team"]
+    Manual -->|No| Rank["Rank by monthly off-quota overruns, monthly load,<br/>prior 90-day load, attendance, prior Saturday, ID"]
     Rank --> Choose["Save best automatic team"]
     Keep --> Next["Continue to next Saturday"]
     Choose --> Next
